@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>房间建模1</title>
+    <style>
+        *{
+            margin:0;
+            padding:0;
+        }
+    </style>
+    <link href="./library/bootstrap/css/bootstrap.min.css" type="text/css" rel="stylesheet">
+    <link href="./css/buttons.css" rel="stylesheet" type="text/css"/>
+    <script src="./library/bootstrap/js/jquery.min.js"></script>
+    <script src="./library/bootstrap/js/bootstrap.min.js"></script>
+    <link href="./css/primer.css" type="text/css" rel="stylesheet">
+</head>
+
+<!-- 在所有JS脚本、CSS文件和DOM加载完毕后触发 -->
+<body onload="main()">
+
+  <!-- 处理加载过程 -->
+<div id="processing" style="width: 100%;height: 100%;background: rgba(0,0,0,0.5);position: fixed;display: flex">
+    <p style="display: flex;margin: auto;width: 200px;height: 100px;color:white;font-size: 24px;" id="percentage">加载中...</p>
+</div>
+
+<!-- 下面如果浏览器的不支持canvas对象，则显示提示文字 -->
+<canvas id="webgl" width="1440" height="820">
+    Please use a browser that supports "canvas"
+</canvas>
+
+<!-- 场景左下角的控制面板 -->
+<div class="control">
+    <img src="images/left.png" id="toleft">
+    <img src="images/ahead.png" id="toahead">
+    <img src="images/backward.png" id="tobackward">
+    <img src="images/right.png" id="toright">
+</div>
+
+<!-- 顶点着色器中的纹理坐标/颜色信息都需要传递给片元着色器进一步处理 -->
+<!-- attribute专属于顶点着色器 -->
+<script id="shader-vs" type="x-shader/x-vertex">
+    attribute vec4 a_Position;//齐次坐标形式的顶点位置
+    attribute vec4 a_Color;//RGBA形式的顶点颜色
+    attribute vec4 a_Normal;//齐次坐标形式的顶点法向量
+    attribute vec3 a_TextCord;//顶点对应的纹理坐标
+    uniform vec3 eye_Position;//几何模型中相机位置
+    uniform mat4 u_MvpMatrix;//MVP矩阵，用于将几何模型从模型空间->视图空间->投影空间的转换
+    uniform mat4 u_ModelMatrix;//几何模型的模型矩阵，用于从局部坐标系转换为世界坐标系
+    uniform mat4 u_NormalMatrix;//计算几何模型的顶点法向量矩阵
+    varying vec4 v_Color;//RGBA形式的顶点颜色，需要传递给片元着色器
+    varying vec3 v_TextCord;//顶点纹理坐标，需要传递给片元着色器
+    uniform float u_Clicked;//几何模型的点击位置
+    uniform float u_ifCertainColor;//几何模型的具体颜色信息
+    varying float v_Clicked;//传递给片元着色器处理的点击位置
+    uniform vec4 u_tempColor;//RGBA形式的临时颜色变量
+    varying vec4 v_tempColor;//传递给片元着色器的临时颜色变量
+    uniform vec4 u_certainColor;//针对几何模型的颜色
+    uniform vec3 u_lightColor;//光照颜色
+    uniform vec3 u_light_position;//光源位置
+    uniform float u_If_Fog;//是否进行雾化效果
+    varying float If_Fog;//传递给片元着色器的雾化指示器
+    varying float v_Dist;//传递给片元着色器的距离参数
+    void main() {
+      If_Fog = u_If_Fog;
+      v_tempColor = u_tempColor;
+      v_Clicked = u_Clicked;
+
+      //计算相机位置与顶点经过MVP变换后的距离
+      v_Dist = distance(u_MvpMatrix * a_Position, vec4(eye_Position,1.0));
+
+      //顶点的模型变换，即从局部坐标系转换为场景的世界坐标系
+      vec4 vertexPosition = u_ModelMatrix * a_Position;
+
+      //计算入射光方向phong模型
+      vec3 lightDirection0 = normalize(u_light_position - vec3(vertexPosition));
+
+      //计算顶点到视点的方向 phong模型
+      vec3 eyetoDirection0 = normalize(eye_Position - vec3(vertexPosition));
+      vec3 lightDirection = vec3(0.0, -0.87, 0.87);
+      vec3 lightDirection2 = vec3(1.0, -0.87, -0.87);
+      vec3 lightDirection3 = vec3(-1.0, -0.87, -0.87);
+
+      //环境光颜色
+      vec3 lightColor = u_lightColor;
+
+      //gl_Position是OpenGL内置的变量
+      gl_Position = u_MvpMatrix * a_Position;
+
+      //计算顶点法向量
+      vec3 normal = normalize(vec3(u_NormalMatrix * a_Normal));
+      
+      //计算反射光方向 phong模型
+      float tempreflec = dot(2.0 * normal, lightDirection0);
+      if(tempreflec<0.0)tempreflec=0.0;
+      vec3 reflectDirection = normalize(normal * tempreflec - lightDirection0);
+      
+      //计算环境光产生的光颜色
+      float nDotL0 = max(dot(normal, lightDirection0), 0.0);
+      vec3 diffuse = vec3(0.8, 0.8, 0.8) * a_Color.rgb * nDotL0;//计算漫反射光颜色
+      vec3 ambient = lightColor * a_Color.rgb;
+
+      float tempColorWeight = dot(eyetoDirection0 , reflectDirection) ;
+
+      if(tempColorWeight<0.0)tempColorWeight=0.0;
+
+      //计算镜面反射光强,phong模型结果
+      vec3 specularColor = lightColor*tempColorWeight*tempColorWeight*tempColorWeight * 1.5; 
+      v_Color = vec4(diffuse + ambient + specularColor, a_Color.a);
+
+      //平行光的时候用，计算光线方向和法向量点积
+      float nDotL = max(dot(normal, lightDirection), 0.0);
+      float nDotL2 = max(dot(normal, lightDirection2), 0.0);
+      float nDotL3 = max(dot(normal, lightDirection3), 0.0);
+      v_TextCord = a_TextCord;
+
+      if(u_ifCertainColor == 1.0){
+           v_Color = vec4(u_certainColor.rgb  +specularColor,u_certainColor.a);
+      }
+      if(u_Clicked == 1.0){
+           v_Color = u_tempColor;
+      }
+    }
+</script>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+    #ifdef GL_ES
+    precision mediump float;
+    #endif
+    varying vec3 v_TextCord;
+    varying vec4 v_Color;
+    varying float v_Clicked;
+    varying vec4 v_tempColor;
+    uniform sampler2D u_Sampler;//纹理采样器，从顶点纹理坐标采用形成像素纹理坐标
+    uniform vec3 u_FogColor;
+    uniform vec2 u_FogDist;
+    varying float If_Fog;
+    varying float v_Dist;
+    void main() {
+        vec4 temp_gl_FragColor;
+        if(v_TextCord.z==1.0){
+             temp_gl_FragColor = texture2D(u_Sampler, v_TextCord.xy) * 0.7 + v_Color * 0.3;
+        }
+        else{
+             temp_gl_FragColor = v_Color;
+        }
+        if(If_Fog==1.0){
+             float fogFactor = clamp((u_FogDist.y - v_Dist) / (u_FogDist.y - u_FogDist.x), 0.0, 1.0);
+             vec3 color = mix(u_FogColor, vec3(temp_gl_FragColor), fogFactor);
+             temp_gl_FragColor=vec4(vec3(temp_gl_FragColor*fogFactor),1);
+        }
+        if(v_Clicked == 1.0){
+             temp_gl_FragColor = v_tempColor;
+        }
+        gl_FragColor=temp_gl_FragColor;
+    }
+</script>
+
+<!-- 创建WebGL工具模块 -->
+<script src="../lib/webgl-utils.js"></script>
+
+<!-- WebGL应用调试模块 -->
+<script src="../lib/webgl-debug.js"></script>
+
+<!-- 创建WebGL上下文对象、编译着色器和连接程序整个流程 -->
+<script src="../lib/cuon-utils.js"></script>
+
+<!-- 常用的矩阵变换 -->
+<script src="../lib/cuon-matrix.js"></script>
+
+<!-- 模型采用OBJ文件格式存储，因此需要解析OBJ文件。 -->
+<script src="../src/webglObjLoader.js"></script>
+<script src="./computerRoom.js"></script>
+
+</body>
+</html>
