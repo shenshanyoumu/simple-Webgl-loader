@@ -68,8 +68,3 @@ function updateDrawInfo(index,someDrawInfo){
 
 关于具体的使用方式，我已经给出了详细的例子，在 example 文件夹下的 computerRoom.html 和 computerRoom.js 中。
 
-_解释权归个人所有，联系方式:networknxt@gmail.com_
-
-### 协议
-
-MIT
